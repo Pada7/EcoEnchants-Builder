@@ -83,7 +83,7 @@ jobs:
             基于 [Auxilor/EcoEnchants](https://github.com/Auxilor/EcoEnchants) master 自动编译。
 
             **版本：** `${{ steps.meta.outputs.version }}`
-            **依赖：** [eco ${{ steps.meta.outputs.eco }}](https://www.spigotmc.org/resources/eco.133178/)
+            **依赖：** [eco ${{ steps.meta.outputs.eco }}](https://modrinth.com/plugin/eco-plugin)
             
             **编译时间：** ${{ steps.meta.outputs.time }}
           files: ${{ steps.meta.outputs.jar }}
