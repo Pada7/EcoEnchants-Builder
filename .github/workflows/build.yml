@@ -1,0 +1,92 @@
+name: Build EcoEnchants Complete & Auto Release
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Auxilor/EcoEnchants
+          ref: master
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean libreforgeJar --full-stacktrace --no-daemon
+
+      - name: Prepare release
+        id: meta
+        run: |
+          VERSION=$(grep -E '^version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          [ -z "$VERSION" ] && VERSION="unknown"
+          ECO=$(grep -E '^eco-version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          [ -z "$ECO" ] && ECO="unknown"
+          TAG="v${VERSION}"
+          JAR=$(find bin -name "EcoEnchants v${VERSION}.jar" 2>/dev/null | head -n1)
+          [ -z "$JAR" ] && JAR=$(find bin -name "EcoEnchants v*.jar" 2>/dev/null | head -n1)
+          [ -z "$JAR" ] && exit 1
+          FINAL="EcoEnchants-${VERSION}.jar"
+          cp "$JAR" "$FINAL"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "eco=$ECO" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "jar=$FINAL" >> "$GITHUB_OUTPUT"
+          echo "time=$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S %Z')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: EcoEnchants-${{ steps.meta.outputs.version }}
+          path: ${{ steps.meta.outputs.jar }}
+          retention-days: 30
+
+      - name: Delete old releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT="${{ steps.meta.outputs.tag }}"
+          REPO="${{ github.repository }}"
+          gh release delete -R "$REPO" "$CURRENT" --yes --cleanup-tag || true
+          gh release list -R "$REPO" --limit 100 --json tagName -q '.[].tagName' | while read -r tag; do
+            [ -z "$tag" ] && continue
+            [ "$tag" = "$CURRENT" ] && continue
+            gh release delete -R "$REPO" "$tag" --yes --cleanup-tag || true
+          done
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: EcoEnchants ${{ steps.meta.outputs.version }}
+          body: |
+            基于 [Auxilor/EcoEnchants](https://github.com/Auxilor/EcoEnchants) master 自动编译。
+
+            **版本：** `${{ steps.meta.outputs.version }}`
+            **依赖：** [eco ${{ steps.meta.outputs.eco }}](https://www.spigotmc.org/resources/eco.133178/)
+            
+            **编译时间：** ${{ steps.meta.outputs.time }}
+          files: ${{ steps.meta.outputs.jar }}
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
